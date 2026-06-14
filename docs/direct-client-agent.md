@@ -51,6 +51,23 @@ It does not execute tests or mutate state.
 7. `POST /run/update` after each plan step
 8. Generate report from `/run/state`, `/history`, `/records`, `/artifacts`
 
+When writing records for a plan step, include `data.stepId`. When updating a step, include evidence links:
+
+```json
+{
+  "stepId": "login",
+  "stepStatus": "completed",
+  "summary": "Login succeeded",
+  "evidence": {
+    "records": [2, 3],
+    "history": [5, 6, 7],
+    "screenshots": ["login/01-page.png", "login/02-success.png"]
+  }
+}
+```
+
+The monitor uses these links when a user clicks a plan step.
+
 ## API Summary
 
 | API | Purpose |
@@ -127,13 +144,13 @@ Calls one MCP tool. Every call is appended to `/history` and saved to:
 - `<outputDir>/history.jsonl`
 - `<outputDir>/history.json`
 
-When calling `browser_take_screenshot` with a relative `filename`, the proxy rewrites it into:
+When calling `browser_take_screenshot`, the proxy does not rewrite `filename`. The AI must provide a task-scoped path under `outputDir`, for example:
 
 ```text
-<outputDir>/<runId>/screenshots/<filename>
+reports/live/<runId>/screenshots/login/01-page.png
 ```
 
-This prevents different tasks from overwriting each other. The AI should still use meaningful names such as `login/01-page.png` or `order-create/03-submit-result.png`.
+Use the exact same path in `/record.screenshot` and `/run/update.evidence.screenshots`. The monitor only displays screenshots whose recorded path matches an artifact path returned by `/artifacts`.
 
 Request:
 
@@ -188,7 +205,7 @@ Examples:
 {
   "tool": "browser_take_screenshot",
   "arguments": {
-    "filename": "01-login-page.png",
+    "filename": "reports/live/run-001/screenshots/login/01-login-page.png",
     "fullPage": true
   }
 }
@@ -331,6 +348,7 @@ Request:
   "snapshotRef": "history:3",
   "severity": "P2",
   "data": {
+    "stepId": "login",
     "expected": "Login controls are visible",
     "actual": "Snapshot contains username, password, captcha, login button"
   }
@@ -356,7 +374,7 @@ Response:
 }
 ```
 
-For screenshots, store the same `filename` used in `browser_take_screenshot`. The monitor will match it with `/artifacts` and show a preview when the file exists.
+For screenshots, store the exact same path used in `browser_take_screenshot.arguments.filename`. The monitor does not guess or rewrite paths.
 
 Recommended `type` values:
 
@@ -444,7 +462,6 @@ Proxy:
 - stores history
 - stores records
 - stores run state
-- rewrites relative screenshot paths into the current run artifact directory
 - lists artifacts
 - resets browser session
 
@@ -463,6 +480,7 @@ AI:
 - Prefer snapshot refs over CSS selectors.
 - Take screenshots at important states.
 - Use task-specific screenshot names; prefer subfolders for large flows.
+- Store screenshot paths exactly as passed to `browser_take_screenshot`.
 - Check console/network after failures.
 - Call `/record` throughout the run, not only at the end.
 - Call `/run/update` after each plan step.

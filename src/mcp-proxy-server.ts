@@ -1,7 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { spawn } from "node:child_process";
 import { appendFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
-import { dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
+import { extname, isAbsolute, join, relative, resolve } from "node:path";
 import { callTool, createPlaywrightMcpClient, type ToolArguments } from "./mcp-client.js";
 
 interface CallRequest {
@@ -360,13 +360,13 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
     }
 
     const startedAt = new Date().toISOString();
-    const normalizedArguments = await normalizeToolArguments(body.tool, body.arguments ?? {});
-    const result = await callTool(session.client, body.tool, normalizedArguments);
+    const toolArguments = body.arguments ?? {};
+    const result = await callTool(session.client, body.tool, toolArguments);
     const entry = {
       index: history.length + 1,
       startedAt,
       tool: body.tool,
-      arguments: redactSecrets(normalizedArguments),
+      arguments: redactSecrets(toolArguments),
       result
     };
     history.push(entry);
@@ -427,41 +427,6 @@ async function createSession() {
   return createPlaywrightMcpClient({
     mcpArgs
   });
-}
-
-async function normalizeToolArguments(tool: string, toolArguments: ToolArguments): Promise<ToolArguments> {
-  if (tool !== "browser_take_screenshot") {
-    return toolArguments;
-  }
-
-  const filename = typeof toolArguments.filename === "string" ? toolArguments.filename : "";
-  if (!filename || isAbsolute(filename)) {
-    return toolArguments;
-  }
-
-  const runDir = join(outputDir, safeSegment(runState?.id ?? "adhoc"));
-  const screenshotPath = join(runDir, "screenshots", filename);
-  const resolvedScreenshotPath = resolve(screenshotPath);
-  const resolvedScreenshotsDir = resolve(runDir, "screenshots");
-  if (!isInside(resolvedScreenshotPath, resolvedScreenshotsDir)) {
-    const fallbackPath = join(runDir, "screenshots", safeSegment(filename));
-    await mkdir(dirname(fallbackPath), {
-      recursive: true
-    });
-    return {
-      ...toolArguments,
-      filename: toPortablePath(fallbackPath)
-    };
-  }
-
-  await mkdir(dirname(screenshotPath), {
-    recursive: true
-  });
-
-  return {
-    ...toolArguments,
-    filename: toPortablePath(screenshotPath)
-  };
 }
 
 async function readJson<T>(request: IncomingMessage): Promise<T> {
@@ -565,10 +530,6 @@ function openUrl(url: string): void {
   child.unref();
 }
 
-function safeSegment(value: string): string {
-  return value.replace(/[^a-z0-9._-]+/gi, "-").replace(/^-+|-+$/g, "") || "run";
-}
-
 function isInside(child: string, parent: string): boolean {
   const result = relative(parent, child);
   return result === "" || (!result.startsWith("..") && !isAbsolute(result));
@@ -594,10 +555,6 @@ function contentTypeFor(filePath: string): string {
     default:
       return "application/octet-stream";
   }
-}
-
-function toPortablePath(filePath: string): string {
-  return filePath.replace(/\\/g, "/");
 }
 
 function redactSecrets(value: unknown): unknown {

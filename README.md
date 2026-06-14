@@ -127,7 +127,8 @@ Runtime files are written under `--output-dir`:
 
 - `records.json`, `records.jsonl`
 - `history.json`, `history.jsonl`
-- `<runId>/screenshots/*`
+
+Screenshots are written wherever the AI passes `browser_take_screenshot.arguments.filename`. Use task-scoped paths under `--output-dir` and record the exact same path in `/record.screenshot`.
 
 ## How It Works
 

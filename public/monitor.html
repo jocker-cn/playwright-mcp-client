@@ -235,13 +235,15 @@
       display: flex;
       gap: 10px;
       overflow-x: auto;
+      overflow-y: hidden;
       padding-bottom: 4px;
     }
 
     .step {
       flex: 0 0 min(300px, 78vw);
       padding: 10px;
-      min-height: 104px;
+      min-height: 96px;
+      max-height: 136px;
       color: inherit;
       cursor: pointer;
       text-align: left;
@@ -268,6 +270,15 @@
       max-height: 420px;
       overflow: auto;
       padding-right: 6px;
+    }
+
+    .step-summary {
+      display: -webkit-box;
+      margin-top: 6px;
+      color: var(--muted);
+      overflow: hidden;
+      -webkit-box-orient: vertical;
+      -webkit-line-clamp: 2;
     }
 
     .title {
@@ -449,6 +460,11 @@
       </section>
     </div>
 
+    <section id="stepDetailsSection" hidden>
+      <h2>Step Details</h2>
+      <div id="stepDetails" class="step-results"></div>
+    </section>
+
     <div class="content-grid">
       <section>
         <div class="section-head">
@@ -487,6 +503,8 @@
     const state = {
       timer: null,
       paused: false,
+      run: null,
+      selectedStepId: "",
       artifacts: [],
       records: [],
       history: [],
@@ -507,6 +525,8 @@
       recordCount: document.getElementById("recordCount"),
       runSummary: document.getElementById("runSummary"),
       plan: document.getElementById("plan"),
+      stepDetailsSection: document.getElementById("stepDetailsSection"),
+      stepDetails: document.getElementById("stepDetails"),
       records: document.getElementById("records"),
       history: document.getElementById("history"),
       artifacts: document.getElementById("artifacts")
@@ -571,8 +591,10 @@
         state.artifacts = artifacts.files || [];
         state.records = records.records || [];
         state.history = history.history || [];
+        state.run = runState.run || null;
         renderHealth(health);
-        renderRun(runState.run);
+        renderRun(state.run);
+        renderStepDetails();
         renderRecords(state.records);
         renderHistory(state.history);
         renderArtifacts(state.artifacts);
@@ -608,6 +630,8 @@
       if (!run) {
         els.runSummary.innerHTML = '<span class="muted">No active run.</span>';
         els.plan.innerHTML = "";
+        state.selectedStepId = "";
+        renderStepDetails();
         return;
       }
 
@@ -624,19 +648,35 @@
         </div>
       `;
 
-      els.plan.innerHTML = (run.plan || []).map(step => `
-        <div class="step">
+      const steps = run.plan || [];
+      if (state.selectedStepId && !steps.some(step => step.id === state.selectedStepId)) {
+        state.selectedStepId = "";
+      }
+
+      els.plan.innerHTML = steps.map(step => `
+        <button class="step ${state.selectedStepId === step.id ? "selected" : ""}" type="button" data-step-id="${escapeAttribute(step.id)}">
           <div class="item-head">
             <h3>${escapeHtml(step.title || step.id)}</h3>
             ${pill(step.status || "pending")}
           </div>
           <div class="path">${escapeHtml(step.id)}</div>
-          ${step.summary ? `<pre>${escapeHtml(step.summary)}</pre>` : ""}
-        </div>
+          ${step.summary ? `<div class="step-summary">${escapeHtml(step.summary)}</div>` : ""}
+        </button>
       `).join("") || '<div class="muted">No plan.</div>';
+
+      els.plan.querySelectorAll("[data-step-id]").forEach((item) => {
+        item.addEventListener("click", () => {
+          const stepId = item.getAttribute("data-step-id") || "";
+          state.selectedStepId = state.selectedStepId === stepId ? "" : stepId;
+          renderRun(state.run);
+          renderStepDetails();
+        });
+      });
     }
 
     function renderRecords(records) {
+      state.tabs.records = state.tabs.records || "latest";
+      updateTabs("records");
       const isAll = state.tabs.records === "all";
       const visible = isAll ? records.slice().reverse() : records.slice(-8).reverse();
       els.records.classList.toggle("all", isAll);
@@ -661,7 +701,149 @@
       `;
     }
 
+    function renderStepDetails() {
+      const scrollPositions = captureStepDetailsScroll();
+      if (!state.run || !state.selectedStepId) {
+        els.stepDetailsSection.hidden = true;
+        els.stepDetails.innerHTML = "";
+        return;
+      }
+
+      const step = (state.run.plan || []).find((item) => item.id === state.selectedStepId);
+      if (!step) {
+        els.stepDetailsSection.hidden = true;
+        els.stepDetails.innerHTML = "";
+        return;
+      }
+
+      const evidence = normalizeEvidence(step.evidence);
+      const records = recordsForStep(step, evidence);
+      const history = historyForStep(evidence, records);
+      const screenshots = screenshotsForStep(evidence, records, history);
+
+      els.stepDetailsSection.hidden = false;
+      els.stepDetails.innerHTML = `
+        <div class="item">
+          <div class="item-head">
+            <span class="title">${escapeHtml(step.title || step.id)}</span>
+            ${pill(step.status || "pending")}
+          </div>
+          <div class="path">${escapeHtml(step.id)}</div>
+          ${step.summary ? `<pre>${escapeHtml(step.summary)}</pre>` : ""}
+        </div>
+        <div class="step-result-grid">
+          <div>
+            <h3>Records (${records.length})</h3>
+            <div class="list step-result-list" data-scroll-key="records">${records.map(renderRecord).join("") || '<div class="muted">No records linked to this step.</div>'}</div>
+          </div>
+          <div>
+            <h3>Tool Calls (${history.length})</h3>
+            <div class="list step-result-list" data-scroll-key="history">${history.map((item) => renderHistoryItem(item, true)).join("") || '<div class="muted">No tool calls linked to this step.</div>'}</div>
+          </div>
+        </div>
+        <div>
+          <h3>Screenshots (${screenshots.length})</h3>
+          <div class="list step-result-list" data-scroll-key="screenshots">${screenshots.map(renderArtifactFile).join("") || '<div class="muted">No screenshots linked to this step.</div>'}</div>
+        </div>
+      `;
+      bindPreviewImages();
+      restoreStepDetailsScroll(scrollPositions);
+    }
+
+    function normalizeEvidence(evidence) {
+      if (!evidence || typeof evidence !== "object") {
+        return {};
+      }
+
+      return evidence;
+    }
+
+    function recordsForStep(step, evidence) {
+      const recordIndexes = new Set(asArray(evidence.records).map(Number).filter(Number.isFinite));
+      const screenshotNames = screenshotNamesFromEvidence(evidence);
+      return state.records.filter((record) => {
+        if (recordIndexes.has(Number(record.index))) return true;
+        if (record.screenshot && screenshotNames.some((name) => String(record.screenshot) === String(name))) return true;
+        if (record.stepId === step.id || record.step === step.id) return true;
+        if (record.data && typeof record.data === "object") {
+          if (record.data.stepId === step.id || record.data.step === step.id) return true;
+          if (record.data.evidence && record.data.evidence.stepId === step.id) return true;
+        }
+        return false;
+      });
+    }
+
+    function historyForStep(evidence, records) {
+      const historyIndexes = new Set(asArray(evidence.history).map(Number).filter(Number.isFinite));
+      const screenshots = new Set([
+        ...asArray(evidence.screenshots).map(String),
+        ...screenshotNamesFromEvidence(evidence),
+        ...records.map((record) => record.screenshot).filter(Boolean).map(String)
+      ]);
+
+      return state.history.filter((item) => {
+        if (historyIndexes.has(Number(item.index))) return true;
+        const filename = item.arguments && item.arguments.filename ? String(item.arguments.filename) : "";
+        return filename && [...screenshots].some((shot) => filename.includes(shot) || shot.includes(filename));
+      });
+    }
+
+    function screenshotsForStep(evidence, records, history) {
+      const names = new Set([
+        ...asArray(evidence.screenshots).map(String),
+        ...screenshotNamesFromEvidence(evidence)
+      ]);
+      records.forEach((record) => {
+        if (record.screenshot) names.add(String(record.screenshot));
+      });
+      history.forEach((item) => {
+        if (item.arguments && item.arguments.filename) names.add(String(item.arguments.filename));
+      });
+
+      const files = [];
+      names.forEach((name) => {
+        const file = findArtifact(name);
+        if (file && !files.some((item) => item.path === file.path)) {
+          files.push(file);
+        }
+      });
+
+      return files;
+    }
+
+    function asArray(value) {
+      if (Array.isArray(value)) return value;
+      if (value === undefined || value === null) return [];
+      return [value];
+    }
+
+    function screenshotNamesFromEvidence(evidence) {
+      const names = [];
+      collectScreenshotNames(evidence, names);
+      return names;
+    }
+
+    function collectScreenshotNames(value, names) {
+      if (!value) return;
+      if (typeof value === "string") {
+        if (/\.(png|jpe?g|webp)$/i.test(value)) names.push(value);
+        return;
+      }
+      if (Array.isArray(value)) {
+        value.forEach((item) => collectScreenshotNames(item, names));
+        return;
+      }
+      if (typeof value === "object") {
+        for (const [key, item] of Object.entries(value)) {
+          if (/screenshot/i.test(key)) collectScreenshotNames(item, names);
+          else if (Array.isArray(item) || typeof item === "object") collectScreenshotNames(item, names);
+        }
+      }
+    }
+
     function renderHistory(history) {
+      state.tabs.history = state.tabs.history || "latest";
+      updateTabs("history");
       const isAll = state.tabs.history === "all";
       const visible = isAll ? history.slice().reverse() : history.slice(-8).reverse();
       els.history.classList.toggle("all", isAll);
@@ -683,22 +865,43 @@
 
     function renderArtifacts(files) {
       const latest = files.slice().sort((a, b) => String(b.modifiedAt).localeCompare(String(a.modifiedAt))).slice(0, 80);
-      els.artifacts.innerHTML = latest.map(file => {
-        const url = artifactUrl(file);
-        return `
-          <div class="item">
-            <div class="item-head">
-              <span class="title">${escapeHtml(file.relativePath || file.name)}</span>
-              <span class="pill info">${formatBytes(file.size)}</span>
-            </div>
-            <div class="path">${escapeHtml(file.path)}</div>
-            <div class="muted">${escapeHtml(file.modifiedAt || "")}</div>
-            ${url ? `<div><a href="${escapeAttribute(url)}" target="_blank" rel="noreferrer">Open artifact</a></div>` : ""}
-            ${isImage(file.name) && url ? `<img class="thumb" src="${escapeAttribute(url)}" alt="${escapeAttribute(file.name)}" data-preview-src="${escapeAttribute(url)}">` : ""}
-          </div>
-        `;
-      }).join("") || '<div class="muted">No artifacts.</div>';
+      els.artifacts.innerHTML = latest.map(renderArtifactFile).join("") || '<div class="muted">No artifacts.</div>';
       bindPreviewImages();
+    }
+
+    function renderArtifactFile(file) {
+      const url = artifactUrl(file);
+      return `
+        <div class="item">
+          <div class="item-head">
+            <span class="title">${escapeHtml(file.relativePath || file.name)}</span>
+            <span class="pill info">${formatBytes(file.size)}</span>
+          </div>
+          <div class="path">${escapeHtml(file.path)}</div>
+          <div class="muted">${escapeHtml(file.modifiedAt || "")}</div>
+          ${url ? `<div><a href="${escapeAttribute(url)}" target="_blank" rel="noreferrer">Open artifact</a></div>` : ""}
+          ${isImage(file.name) && url ? `<img class="thumb" src="${escapeAttribute(url)}" alt="${escapeAttribute(file.name)}" data-preview-src="${escapeAttribute(url)}">` : ""}
+        </div>
+      `;
+    }
+
+    function captureStepDetailsScroll() {
+      const positions = {};
+      els.stepDetails.querySelectorAll("[data-scroll-key]").forEach((item) => {
+        positions[item.getAttribute("data-scroll-key")] = item.scrollTop;
+      });
+      return positions;
+    }
+
+    function restoreStepDetailsScroll(positions) {
+      requestAnimationFrame(() => {
+        els.stepDetails.querySelectorAll("[data-scroll-key]").forEach((item) => {
+          const key = item.getAttribute("data-scroll-key");
+          if (positions[key] !== undefined) {
+            item.scrollTop = positions[key];
+          }
+        });
+      });
     }
 
     function updateTabs(group) {
@@ -739,11 +942,10 @@
 
     function findArtifact(screenshot) {
       const normalized = String(screenshot).replace(/\\/g, "/");
-      const name = normalized.split("/").pop();
       return state.artifacts.find(file => {
         const path = String(file.path || "").replace(/\\/g, "/");
         const relativePath = String(file.relativePath || "").replace(/\\/g, "/");
-        return file.name === name || path === normalized || relativePath === normalized || path.endsWith(`/${normalized}`);
+        return path === normalized || relativePath === normalized;
       });
     }
 
