@@ -1,0 +1,786 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MCP Test Monitor</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f6f7f9;
+      --panel: #ffffff;
+      --line: #d9dee7;
+      --text: #17202e;
+      --muted: #667085;
+      --blue: #2563eb;
+      --green: #15803d;
+      --red: #b42318;
+      --amber: #b54708;
+      --gray: #475467;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font: 14px/1.45 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel);
+      position: sticky;
+      top: 0;
+      z-index: 20;
+    }
+
+    h1,
+    h2,
+    h3 {
+      margin: 0;
+      font-weight: 650;
+    }
+
+    h1 {
+      font-size: 18px;
+    }
+
+    h2 {
+      margin-bottom: 12px;
+      font-size: 15px;
+    }
+
+    h3 {
+      font-size: 13px;
+    }
+
+    label {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+    }
+
+    input {
+      width: 290px;
+      height: 34px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 0 10px;
+      color: var(--text);
+      background: #fff;
+      font: inherit;
+    }
+
+    button {
+      height: 34px;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 0 12px;
+      background: #fff;
+      color: var(--text);
+      cursor: pointer;
+      font: inherit;
+    }
+
+    button.primary {
+      border-color: var(--blue);
+      background: var(--blue);
+      color: #fff;
+    }
+
+    a {
+      color: var(--blue);
+      text-decoration: none;
+    }
+
+    main {
+      display: grid;
+      gap: 16px;
+      padding: 16px;
+    }
+
+    section {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 14px;
+      min-width: 0;
+    }
+
+    #records,
+    #history,
+    #artifacts {
+      max-height: 620px;
+      overflow: auto;
+      padding-right: 6px;
+    }
+
+    #records.all,
+    #history.all {
+      max-height: 680px;
+    }
+
+    .toolbar {
+      display: flex;
+      align-items: end;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .top-grid {
+      display: grid;
+      grid-template-columns: minmax(300px, 420px) 1fr;
+      gap: 16px;
+      align-items: stretch;
+    }
+
+    .status-row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .content-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+
+    .section-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .section-head h2 {
+      margin-bottom: 0;
+    }
+
+    .tabs {
+      display: inline-flex;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      overflow: hidden;
+      background: #fff;
+    }
+
+    .tab {
+      height: 30px;
+      border: 0;
+      border-right: 1px solid var(--line);
+      border-radius: 0;
+      padding: 0 10px;
+      color: var(--muted);
+      background: #fff;
+    }
+
+    .tab:last-child {
+      border-right: 0;
+    }
+
+    .tab.active {
+      color: #fff;
+      background: var(--blue);
+    }
+
+    .metric,
+    .item,
+    .step {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .metric {
+      padding: 10px;
+    }
+
+    .metric .value {
+      display: block;
+      margin-top: 4px;
+      font-size: 20px;
+      font-weight: 700;
+    }
+
+    .list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .item {
+      padding: 10px;
+      min-width: 0;
+    }
+
+    .item-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 6px;
+    }
+
+    .plan-strip {
+      display: flex;
+      gap: 10px;
+      overflow-x: auto;
+      padding-bottom: 4px;
+    }
+
+    .step {
+      flex: 0 0 min(300px, 78vw);
+      padding: 10px;
+      min-height: 104px;
+      color: inherit;
+      cursor: pointer;
+      text-align: left;
+      font: inherit;
+    }
+
+    .step.selected {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.14);
+    }
+
+    .step-results {
+      display: grid;
+      gap: 12px;
+    }
+
+    .step-result-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+
+    .step-result-list {
+      max-height: 420px;
+      overflow: auto;
+      padding-right: 6px;
+    }
+
+    .title {
+      font-weight: 650;
+      overflow-wrap: anywhere;
+    }
+
+    .muted {
+      color: var(--muted);
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      min-height: 22px;
+      padding: 2px 8px;
+      border-radius: 999px;
+      background: #eef2ff;
+      color: #3538cd;
+      font-size: 12px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+
+    .pill.completed,
+    .pill.pass {
+      background: #dcfae6;
+      color: var(--green);
+    }
+
+    .pill.failed,
+    .pill.fail {
+      background: #fee4e2;
+      color: var(--red);
+    }
+
+    .pill.blocked {
+      background: #fef0c7;
+      color: var(--amber);
+    }
+
+    .pill.pending,
+    .pill.info,
+    .pill.skipped {
+      background: #f2f4f7;
+      color: var(--gray);
+    }
+
+    pre {
+      margin: 8px 0 0;
+      max-height: 220px;
+      overflow: auto;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      padding: 10px;
+      background: #0b1020;
+      color: #e5e7eb;
+      font-size: 12px;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .path {
+      font-family: ui-monospace, SFMono-Regular, Consolas, monospace;
+      font-size: 12px;
+      color: var(--muted);
+      overflow-wrap: anywhere;
+    }
+
+    .thumb {
+      display: block;
+      width: 100%;
+      max-height: 220px;
+      object-fit: contain;
+      border: 1px solid var(--line);
+      border-radius: 6px;
+      margin-top: 8px;
+      background: #fff;
+      cursor: zoom-in;
+    }
+
+    .preview {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 50;
+      padding: 28px;
+      background: rgba(15, 23, 42, 0.78);
+    }
+
+    .preview.open {
+      display: grid;
+      place-items: center;
+    }
+
+    .preview img {
+      max-width: min(1200px, 96vw);
+      max-height: 88vh;
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+    }
+
+    .preview button {
+      position: fixed;
+      top: 18px;
+      right: 18px;
+      border-color: transparent;
+    }
+
+    .error {
+      color: var(--red);
+      font-weight: 650;
+    }
+
+    @media (max-width: 980px) {
+      header {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      input {
+        width: 100%;
+      }
+
+      .top-grid,
+      .step-result-grid,
+      .content-grid,
+      .status-row {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>MCP Test Monitor</h1>
+      <div class="muted" id="lastUpdated">Not connected</div>
+    </div>
+    <div class="toolbar">
+      <div>
+        <label for="baseUrl">Proxy URL</label><br>
+        <input id="baseUrl" value="http://127.0.0.1:8931">
+      </div>
+      <button id="refresh" class="primary">Refresh</button>
+      <button id="toggle">Pause</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="status-row">
+      <div class="metric">
+        <label>Proxy</label>
+        <span class="value" id="proxyStatus">-</span>
+      </div>
+      <div class="metric">
+        <label>Run Status</label>
+        <span class="value" id="runStatus">-</span>
+      </div>
+      <div class="metric">
+        <label>History</label>
+        <span class="value" id="historyCount">0</span>
+      </div>
+      <div class="metric">
+        <label>Records</label>
+        <span class="value" id="recordCount">0</span>
+      </div>
+    </div>
+
+    <div class="top-grid">
+      <section>
+        <h2>Run</h2>
+        <div id="runSummary" class="muted">No run state.</div>
+      </section>
+      <section>
+        <h2>Plan</h2>
+        <div id="plan" class="plan-strip"></div>
+      </section>
+    </div>
+
+    <div class="content-grid">
+      <section>
+        <div class="section-head">
+          <h2>Records</h2>
+          <div class="tabs" aria-label="Records view">
+            <button class="tab active" data-tab-group="records" data-tab-value="latest">Latest</button>
+            <button class="tab" data-tab-group="records" data-tab-value="all">All</button>
+          </div>
+        </div>
+        <div id="records" class="list"></div>
+      </section>
+      <section>
+        <div class="section-head">
+          <h2>Tool Calls</h2>
+          <div class="tabs" aria-label="Tool calls view">
+            <button class="tab active" data-tab-group="history" data-tab-value="latest">Latest</button>
+            <button class="tab" data-tab-group="history" data-tab-value="all">All</button>
+          </div>
+        </div>
+        <div id="history" class="list"></div>
+      </section>
+    </div>
+
+    <section>
+      <h2>Artifacts</h2>
+      <div id="artifacts" class="list"></div>
+    </section>
+  </main>
+
+  <div class="preview" id="preview" aria-hidden="true">
+    <button id="closePreview">Close</button>
+    <img id="previewImage" alt="">
+  </div>
+
+  <script>
+    const state = {
+      timer: null,
+      paused: false,
+      artifacts: [],
+      records: [],
+      history: [],
+      tabs: {
+        records: "latest",
+        history: "latest"
+      }
+    };
+
+    const els = {
+      baseUrl: document.getElementById("baseUrl"),
+      refresh: document.getElementById("refresh"),
+      toggle: document.getElementById("toggle"),
+      lastUpdated: document.getElementById("lastUpdated"),
+      proxyStatus: document.getElementById("proxyStatus"),
+      runStatus: document.getElementById("runStatus"),
+      historyCount: document.getElementById("historyCount"),
+      recordCount: document.getElementById("recordCount"),
+      runSummary: document.getElementById("runSummary"),
+      plan: document.getElementById("plan"),
+      records: document.getElementById("records"),
+      history: document.getElementById("history"),
+      artifacts: document.getElementById("artifacts")
+    };
+    els.preview = document.getElementById("preview");
+    els.previewImage = document.getElementById("previewImage");
+    els.closePreview = document.getElementById("closePreview");
+
+    const storedUrl = localStorage.getItem("mcp-monitor-base-url");
+    if (storedUrl) {
+      els.baseUrl.value = storedUrl;
+    } else if (window.location.protocol === "http:" || window.location.protocol === "https:") {
+      els.baseUrl.value = window.location.origin;
+    }
+
+    els.refresh.addEventListener("click", () => refresh());
+    els.toggle.addEventListener("click", () => {
+      state.paused = !state.paused;
+      els.toggle.textContent = state.paused ? "Resume" : "Pause";
+      if (!state.paused) refresh();
+    });
+    els.baseUrl.addEventListener("change", () => {
+      localStorage.setItem("mcp-monitor-base-url", cleanBaseUrl());
+      refresh();
+    });
+    els.closePreview.addEventListener("click", closePreview);
+    els.preview.addEventListener("click", (event) => {
+      if (event.target === els.preview) closePreview();
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") closePreview();
+    });
+    document.querySelectorAll("[data-tab-group]").forEach((button) => {
+      button.addEventListener("click", () => {
+        const group = button.getAttribute("data-tab-group");
+        const value = button.getAttribute("data-tab-value");
+        state.tabs[group] = value;
+        updateTabs(group);
+        if (group === "records") renderRecords(state.records);
+        if (group === "history") renderHistory(state.history);
+      });
+    });
+
+    refresh();
+    state.timer = setInterval(() => {
+      if (!state.paused) refresh();
+    }, 2000);
+
+    async function refresh() {
+      const base = cleanBaseUrl();
+      localStorage.setItem("mcp-monitor-base-url", base);
+
+      try {
+        const [health, runState, records, history, artifacts] = await Promise.all([
+          getJson(`${base}/health`),
+          getJson(`${base}/run/state`),
+          getJson(`${base}/records`),
+          getJson(`${base}/history`),
+          getJson(`${base}/artifacts`)
+        ]);
+
+        state.artifacts = artifacts.files || [];
+        state.records = records.records || [];
+        state.history = history.history || [];
+        renderHealth(health);
+        renderRun(runState.run);
+        renderRecords(state.records);
+        renderHistory(state.history);
+        renderArtifacts(state.artifacts);
+        els.lastUpdated.textContent = `Updated ${new Date().toLocaleTimeString()}`;
+      } catch (error) {
+        els.proxyStatus.textContent = "offline";
+        els.proxyStatus.className = "value error";
+        els.lastUpdated.textContent = error.message || String(error);
+      }
+    }
+
+    async function getJson(url) {
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`${response.status} ${response.statusText}: ${url}`);
+      }
+      return response.json();
+    }
+
+    function cleanBaseUrl() {
+      return els.baseUrl.value.trim().replace(/\/+$/, "");
+    }
+
+    function renderHealth(data) {
+      els.proxyStatus.textContent = data.ok ? "online" : "error";
+      els.proxyStatus.className = data.ok ? "value" : "value error";
+      els.historyCount.textContent = String(data.historyCount ?? 0);
+      els.recordCount.textContent = String(data.recordCount ?? 0);
+      els.runStatus.textContent = data.runStatus || "-";
+    }
+
+    function renderRun(run) {
+      if (!run) {
+        els.runSummary.innerHTML = '<span class="muted">No active run.</span>';
+        els.plan.innerHTML = "";
+        return;
+      }
+
+      els.runSummary.innerHTML = `
+        <div class="item">
+          <div class="item-head">
+            <span class="title">${escapeHtml(run.goal || run.id || "Run")}</span>
+            ${pill(run.status)}
+          </div>
+          <div class="muted">${escapeHtml(run.target || "")}</div>
+          <div class="path">id: ${escapeHtml(run.id || "")}</div>
+          <div class="path">updated: ${escapeHtml(run.updatedAt || "")}</div>
+          ${run.summary ? `<pre>${escapeHtml(run.summary)}</pre>` : ""}
+        </div>
+      `;
+
+      els.plan.innerHTML = (run.plan || []).map(step => `
+        <div class="step">
+          <div class="item-head">
+            <h3>${escapeHtml(step.title || step.id)}</h3>
+            ${pill(step.status || "pending")}
+          </div>
+          <div class="path">${escapeHtml(step.id)}</div>
+          ${step.summary ? `<pre>${escapeHtml(step.summary)}</pre>` : ""}
+        </div>
+      `).join("") || '<div class="muted">No plan.</div>';
+    }
+
+    function renderRecords(records) {
+      const isAll = state.tabs.records === "all";
+      const visible = isAll ? records.slice().reverse() : records.slice(-8).reverse();
+      els.records.classList.toggle("all", isAll);
+      els.records.innerHTML = visible.map(renderRecord).join("") || '<div class="muted">No records.</div>';
+      bindPreviewImages();
+    }
+
+    function renderRecord(record) {
+      const screenshot = screenshotHtml(record.screenshot);
+      return `
+        <div class="item">
+          <div class="item-head">
+            <span class="title">#${record.index} ${escapeHtml(record.title || record.type || "record")}</span>
+            ${pill(record.status || "info")}
+          </div>
+          <div class="muted">${escapeHtml(record.type || "")} ${record.severity ? `- ${escapeHtml(record.severity)}` : ""}</div>
+          ${record.url ? `<div class="path">${escapeHtml(record.url)}</div>` : ""}
+          ${record.screenshot ? `<div class="path">screenshot: ${escapeHtml(record.screenshot)}</div>` : ""}
+          ${screenshot}
+          ${record.data && Object.keys(record.data).length ? `<pre>${escapeHtml(JSON.stringify(record.data, null, 2))}</pre>` : ""}
+        </div>
+      `;
+    }
+
+    function renderHistory(history) {
+      const isAll = state.tabs.history === "all";
+      const visible = isAll ? history.slice().reverse() : history.slice(-8).reverse();
+      els.history.classList.toggle("all", isAll);
+      els.history.innerHTML = visible.map((item) => renderHistoryItem(item, isAll)).join("") || '<div class="muted">No calls.</div>';
+    }
+
+    function renderHistoryItem(item, includeResult) {
+      return `
+        <div class="item">
+          <div class="item-head">
+            <span class="title">#${item.index} ${escapeHtml(item.tool || "tool")}</span>
+            <span class="pill info">${escapeHtml((item.startedAt || "").split("T")[1] || "")}</span>
+          </div>
+          <pre>${escapeHtml(JSON.stringify(item.arguments || {}, null, 2))}</pre>
+          ${includeResult ? `<pre>${escapeHtml(JSON.stringify(item.result || {}, null, 2))}</pre>` : ""}
+        </div>
+      `;
+    }
+
+    function renderArtifacts(files) {
+      const latest = files.slice().sort((a, b) => String(b.modifiedAt).localeCompare(String(a.modifiedAt))).slice(0, 80);
+      els.artifacts.innerHTML = latest.map(file => {
+        const url = artifactUrl(file);
+        return `
+          <div class="item">
+            <div class="item-head">
+              <span class="title">${escapeHtml(file.relativePath || file.name)}</span>
+              <span class="pill info">${formatBytes(file.size)}</span>
+            </div>
+            <div class="path">${escapeHtml(file.path)}</div>
+            <div class="muted">${escapeHtml(file.modifiedAt || "")}</div>
+            ${url ? `<div><a href="${escapeAttribute(url)}" target="_blank" rel="noreferrer">Open artifact</a></div>` : ""}
+            ${isImage(file.name) && url ? `<img class="thumb" src="${escapeAttribute(url)}" alt="${escapeAttribute(file.name)}" data-preview-src="${escapeAttribute(url)}">` : ""}
+          </div>
+        `;
+      }).join("") || '<div class="muted">No artifacts.</div>';
+      bindPreviewImages();
+    }
+
+    function updateTabs(group) {
+      document.querySelectorAll(`[data-tab-group="${group}"]`).forEach((button) => {
+        button.classList.toggle("active", button.getAttribute("data-tab-value") === state.tabs[group]);
+      });
+    }
+
+    function screenshotHtml(screenshot) {
+      if (!screenshot) return "";
+      const file = findArtifact(screenshot);
+      const url = file ? artifactUrl(file) : "";
+      if (!url) return "";
+      return `
+        <img class="thumb" src="${escapeAttribute(url)}" alt="${escapeAttribute(screenshot)}" data-preview-src="${escapeAttribute(url)}">
+      `;
+    }
+
+    function bindPreviewImages() {
+      document.querySelectorAll("[data-preview-src]").forEach((image) => {
+        image.onclick = () => openPreview(image.getAttribute("data-preview-src"), image.getAttribute("alt"));
+      });
+    }
+
+    function openPreview(src, alt) {
+      if (!src) return;
+      els.previewImage.src = src;
+      els.previewImage.alt = alt || "";
+      els.preview.classList.add("open");
+      els.preview.setAttribute("aria-hidden", "false");
+    }
+
+    function closePreview() {
+      els.preview.classList.remove("open");
+      els.preview.setAttribute("aria-hidden", "true");
+      els.previewImage.removeAttribute("src");
+    }
+
+    function findArtifact(screenshot) {
+      const normalized = String(screenshot).replace(/\\/g, "/");
+      const name = normalized.split("/").pop();
+      return state.artifacts.find(file => {
+        const path = String(file.path || "").replace(/\\/g, "/");
+        const relativePath = String(file.relativePath || "").replace(/\\/g, "/");
+        return file.name === name || path === normalized || relativePath === normalized || path.endsWith(`/${normalized}`);
+      });
+    }
+
+    function artifactUrl(file) {
+      if (!file) return "";
+      const url = file.url || `/artifact?path=${encodeURIComponent(file.path || "")}`;
+      return `${cleanBaseUrl()}${url}`;
+    }
+
+    function isImage(name) {
+      return /\.(png|jpe?g|webp)$/i.test(String(name || ""));
+    }
+
+    function pill(value) {
+      const safe = escapeHtml(String(value || "info"));
+      return `<span class="pill ${safe}">${safe}</span>`;
+    }
+
+    function formatBytes(value) {
+      const bytes = Number(value || 0);
+      if (bytes < 1024) return `${bytes} B`;
+      if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+      return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+    }
+
+    function escapeHtml(value) {
+      return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
+    }
+
+    function escapeAttribute(value) {
+      return escapeHtml(value);
+    }
+  </script>
+</body>
+</html>

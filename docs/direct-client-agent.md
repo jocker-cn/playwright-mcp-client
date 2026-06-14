@@ -13,15 +13,32 @@ The proxy starts `@playwright/mcp`; the AI only calls HTTP APIs.
 ```bash
 pnpm client:server
 pnpm client:server -- --headed
+pnpm client:server -- --headed --open
 pnpm client:server -- --headed --port=8931 --viewport-size=1440x900 --output-dir=reports/live
 ```
 
 Options:
 
 - `--headed`: visible browser
+- `--open`: open the monitor page automatically
 - `--port=<number>`: default `8931`
 - `--viewport-size=<width>x<height>`: default `1440x900`
-- `--output-dir=<path>`: screenshots, MCP files, `records.json`, `records.jsonl`
+- `--output-dir=<path>`: MCP files, `records.json`, `records.jsonl`, `history.json`, `history.jsonl`, run artifacts
+
+## Live Monitor
+
+Open `http://127.0.0.1:8931/` after the proxy starts. If a custom port is used, open that port instead.
+
+`public/monitor.html` can also be opened directly, but the proxy-served URL is the default path.
+
+The monitor is static HTML. It polls the proxy APIs and displays:
+
+- current run status and plan
+- latest and full `/record` entries
+- latest and full `/call` history
+- files and screenshots under `outputDir`
+
+It does not execute tests or mutate state.
 
 ## Agent Loop
 
@@ -38,6 +55,9 @@ Options:
 
 | API | Purpose |
 |---|---|
+| `GET /` | monitor page |
+| `GET /monitor` | monitor page |
+| `GET /monitor.html` | monitor page |
 | `GET /health` | proxy status |
 | `GET /tools` | MCP tool schemas |
 | `POST /call` | call one MCP tool |
@@ -102,7 +122,18 @@ Common tools:
 
 ## `POST /call`
 
-Calls one MCP tool. Every call is appended to `/history`.
+Calls one MCP tool. Every call is appended to `/history` and saved to:
+
+- `<outputDir>/history.jsonl`
+- `<outputDir>/history.json`
+
+When calling `browser_take_screenshot` with a relative `filename`, the proxy rewrites it into:
+
+```text
+<outputDir>/<runId>/screenshots/<filename>
+```
+
+This prevents different tasks from overwriting each other. The AI should still use meaningful names such as `login/01-page.png` or `order-create/03-submit-result.png`.
 
 Request:
 
@@ -165,7 +196,7 @@ Examples:
 
 ## `GET /history`
 
-Returns raw MCP call history.
+Returns raw MCP call history. The same data is persisted in `<outputDir>/history.json`.
 
 ```json
 {
@@ -325,6 +356,8 @@ Response:
 }
 ```
 
+For screenshots, store the same `filename` used in `browser_take_screenshot`. The monitor will match it with `/artifacts` and show a preview when the file exists.
+
 Recommended `type` values:
 
 - `observation`
@@ -357,7 +390,7 @@ Use this as the main structured input for Markdown/HTML reports.
 
 ## `GET /artifacts`
 
-Lists files directly under `outputDir`.
+Lists files under `outputDir` recursively.
 
 ```json
 {
@@ -366,12 +399,22 @@ Lists files directly under `outputDir`.
   "files": [
     {
       "name": "01-login-page.png",
-      "path": "reports/mcp-proxy/01-login-page.png",
+      "path": "reports/mcp-proxy/run-xxx/screenshots/01-login-page.png",
+      "relativePath": "run-xxx/screenshots/01-login-page.png",
+      "url": "/artifact?path=reports%2Fmcp-proxy%2Frun-xxx%2Fscreenshots%2F01-login-page.png",
       "size": 12345,
       "modifiedAt": "2026-06-14T09:00:00.000Z"
     }
   ]
 }
+```
+
+## `GET /artifact`
+
+Returns one artifact file for preview/download.
+
+```text
+GET /artifact?path=reports%2Fmcp-proxy%2Frun-xxx%2Fscreenshots%2F01-login-page.png
 ```
 
 ## `POST /reset`
@@ -390,7 +433,7 @@ Restarts the MCP/browser session and clears in-memory `/history`, `/records`, an
 - `/run/state`: plan, progress, final run status
 - `/history`: raw tool calls and MCP results
 - `/records`: AI test conclusions
-- `/artifacts`: screenshots and saved files
+- `/artifacts`: screenshots and saved files under `outputDir`
 
 ## Responsibility Split
 
@@ -401,6 +444,7 @@ Proxy:
 - stores history
 - stores records
 - stores run state
+- rewrites relative screenshot paths into the current run artifact directory
 - lists artifacts
 - resets browser session
 
@@ -418,6 +462,7 @@ AI:
 - Use `browser_snapshot` after navigation and state changes.
 - Prefer snapshot refs over CSS selectors.
 - Take screenshots at important states.
+- Use task-specific screenshot names; prefer subfolders for large flows.
 - Check console/network after failures.
 - Call `/record` throughout the run, not only at the end.
 - Call `/run/update` after each plan step.

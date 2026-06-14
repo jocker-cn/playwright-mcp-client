@@ -30,15 +30,29 @@ Custom port/output directory:
 pnpm client:server -- --headed --port=8931 --output-dir=reports/live
 ```
 
+Open the monitor automatically:
+
+```bash
+pnpm client:server -- --headed --open
+```
+
 ## API
 
+- `GET /`
+- `GET /monitor`
+- `GET /monitor.html`
 - `GET /health`
 - `GET /tools`
 - `GET /history`
+- `GET /run/state`
 - `GET /records`
 - `GET /artifacts`
+- `GET /artifact?path=<file>`
 - `POST /call`
 - `POST /record`
+- `POST /run/start`
+- `POST /run/update`
+- `POST /run/finish`
 - `POST /reset`
 
 Call one MCP tool:
@@ -88,6 +102,32 @@ Show Playwright MCP server options:
 ```bash
 pnpm mcp:help
 ```
+
+## Live Monitor
+
+After starting the proxy, open:
+
+```text
+http://127.0.0.1:8931/
+```
+
+Use `--open` to open it automatically. `public/monitor.html` can still be opened directly if needed.
+
+The page polls:
+
+- `/health`
+- `/run/state`
+- `/history`
+- `/records`
+- `/artifacts`
+
+It does not change test execution. It displays run state, records, call history, and screenshot/artifact previews.
+
+Runtime files are written under `--output-dir`:
+
+- `records.json`, `records.jsonl`
+- `history.json`, `history.jsonl`
+- `<runId>/screenshots/*`
 
 ## How It Works
 

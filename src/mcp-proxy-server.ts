@@ -1,6 +1,7 @@
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
-import { appendFile, mkdir, readdir, stat, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { spawn } from "node:child_process";
+import { appendFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { dirname, extname, isAbsolute, join, relative, resolve } from "node:path";
 import { callTool, createPlaywrightMcpClient, type ToolArguments } from "./mcp-client.js";
 
 interface CallRequest {
@@ -58,8 +59,10 @@ interface RunUpdateRequest {
 const args = process.argv.slice(2);
 const port = getNumberArg("--port", 8931);
 const headed = args.includes("--headed");
+const openMonitor = args.includes("--open");
 const outputDir = getStringArg("--output-dir", "reports/mcp-proxy");
 const viewport = getStringArg("--viewport-size", "1440x900");
+const monitorUrl = `http://127.0.0.1:${port}/`;
 
 await mkdir(outputDir, { recursive: true });
 
@@ -84,15 +87,20 @@ server.listen(port, () => {
     ok: true,
     message: "MCP proxy server started",
     port,
+    monitorUrl,
     outputDir,
     headed,
     endpoints: [
+      "GET /",
+      "GET /monitor",
+      "GET /monitor.html",
       "GET /health",
       "GET /tools",
       "GET /history",
       "GET /records",
       "GET /run/state",
       "GET /artifacts",
+      "GET /artifact",
       "POST /call",
       "POST /record",
       "POST /run/start",
@@ -101,6 +109,10 @@ server.listen(port, () => {
       "POST /reset"
     ]
   }, null, 2));
+
+  if (openMonitor) {
+    openUrl(monitorUrl);
+  }
 });
 
 process.on("SIGINT", async () => {
@@ -111,6 +123,12 @@ process.on("SIGINT", async () => {
 
 async function route(request: IncomingMessage, response: ServerResponse): Promise<void> {
   const url = new URL(request.url ?? "/", `http://${request.headers.host ?? "localhost"}`);
+
+  if (request.method === "GET" && ["/", "/monitor", "/monitor.html"].includes(url.pathname)) {
+    const html = await readFile("public/monitor.html", "utf8");
+    sendHtml(response, 200, html);
+    return;
+  }
 
   if (request.method === "GET" && url.pathname === "/health") {
     sendJson(response, 200, {
@@ -169,12 +187,27 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
     return;
   }
 
+  if (request.method === "GET" && url.pathname === "/artifact") {
+    const filePath = url.searchParams.get("path");
+    if (!filePath) {
+      sendJson(response, 400, {
+        ok: false,
+        error: "Missing required query: path"
+      });
+      return;
+    }
+
+    await sendArtifact(response, filePath);
+    return;
+  }
+
   if (request.method === "POST" && url.pathname === "/reset") {
     await session.close();
     session = await createSession();
     history.length = 0;
     records.length = 0;
     runState = null;
+    await persistHistory();
     await persistRecords();
     await persistRunState();
     sendJson(response, 200, {
@@ -327,15 +360,18 @@ async function route(request: IncomingMessage, response: ServerResponse): Promis
     }
 
     const startedAt = new Date().toISOString();
-    const result = await callTool(session.client, body.tool, body.arguments ?? {});
+    const normalizedArguments = await normalizeToolArguments(body.tool, body.arguments ?? {});
+    const result = await callTool(session.client, body.tool, normalizedArguments);
     const entry = {
       index: history.length + 1,
       startedAt,
       tool: body.tool,
-      arguments: redactSecrets(body.arguments ?? {}),
+      arguments: redactSecrets(normalizedArguments),
       result
     };
     history.push(entry);
+    await appendFile(`${outputDir}/history.jsonl`, `${JSON.stringify(entry)}\n`, "utf8");
+    await persistHistory();
 
     sendJson(response, 200, {
       ok: true,
@@ -354,6 +390,13 @@ async function persistRecords(): Promise<void> {
   await writeFile(`${outputDir}/records.json`, JSON.stringify({
     outputDir,
     records
+  }, null, 2), "utf8");
+}
+
+async function persistHistory(): Promise<void> {
+  await writeFile(`${outputDir}/history.json`, JSON.stringify({
+    outputDir,
+    history
   }, null, 2), "utf8");
 }
 
@@ -386,6 +429,41 @@ async function createSession() {
   });
 }
 
+async function normalizeToolArguments(tool: string, toolArguments: ToolArguments): Promise<ToolArguments> {
+  if (tool !== "browser_take_screenshot") {
+    return toolArguments;
+  }
+
+  const filename = typeof toolArguments.filename === "string" ? toolArguments.filename : "";
+  if (!filename || isAbsolute(filename)) {
+    return toolArguments;
+  }
+
+  const runDir = join(outputDir, safeSegment(runState?.id ?? "adhoc"));
+  const screenshotPath = join(runDir, "screenshots", filename);
+  const resolvedScreenshotPath = resolve(screenshotPath);
+  const resolvedScreenshotsDir = resolve(runDir, "screenshots");
+  if (!isInside(resolvedScreenshotPath, resolvedScreenshotsDir)) {
+    const fallbackPath = join(runDir, "screenshots", safeSegment(filename));
+    await mkdir(dirname(fallbackPath), {
+      recursive: true
+    });
+    return {
+      ...toolArguments,
+      filename: toPortablePath(fallbackPath)
+    };
+  }
+
+  await mkdir(dirname(screenshotPath), {
+    recursive: true
+  });
+
+  return {
+    ...toolArguments,
+    filename: toPortablePath(screenshotPath)
+  };
+}
+
 async function readJson<T>(request: IncomingMessage): Promise<T> {
   const chunks: Buffer[] = [];
 
@@ -405,6 +483,36 @@ function sendJson(response: ServerResponse, status: number, data: unknown): void
   response.end(JSON.stringify(data, null, 2));
 }
 
+function sendHtml(response: ServerResponse, status: number, html: string): void {
+  response.writeHead(status, {
+    "content-type": "text/html; charset=utf-8",
+    "access-control-allow-origin": "*"
+  });
+  response.end(html);
+}
+
+async function sendArtifact(response: ServerResponse, filePath: string): Promise<void> {
+  const resolvedPath = resolve(filePath);
+  const workspacePath = resolve(".");
+  const outputPath = resolve(outputDir);
+  const isAllowed = isInside(resolvedPath, workspacePath) || isInside(resolvedPath, outputPath);
+
+  if (!isAllowed) {
+    sendJson(response, 403, {
+      ok: false,
+      error: "Artifact path is outside the workspace"
+    });
+    return;
+  }
+
+  const data = await readFile(resolvedPath);
+  response.writeHead(200, {
+    "content-type": contentTypeFor(resolvedPath),
+    "access-control-allow-origin": "*"
+  });
+  response.end(data);
+}
+
 async function listArtifacts(directory: string): Promise<Array<Record<string, unknown>>> {
   const entries = await readdir(directory, {
     withFileTypes: true
@@ -412,15 +520,22 @@ async function listArtifacts(directory: string): Promise<Array<Record<string, un
   const files: Array<Record<string, unknown>> = [];
 
   for (const entry of entries) {
+    const path = join(directory, entry.name);
+    if (entry.isDirectory()) {
+      files.push(...await listArtifacts(path));
+      continue;
+    }
+
     if (!entry.isFile()) {
       continue;
     }
 
-    const path = join(directory, entry.name);
     const info = await stat(path);
     files.push({
       name: entry.name,
       path,
+      relativePath: relative(outputDir, path),
+      url: `/artifact?path=${encodeURIComponent(path)}`,
       size: info.size,
       modifiedAt: info.mtime.toISOString()
     });
@@ -437,6 +552,52 @@ function getStringArg(name: string, defaultValue: string): string {
 function getNumberArg(name: string, defaultValue: number): number {
   const value = Number(getStringArg(name, ""));
   return Number.isFinite(value) && value > 0 ? value : defaultValue;
+}
+
+function openUrl(url: string): void {
+  const command = process.platform === "win32" ? "cmd" : process.platform === "darwin" ? "open" : "xdg-open";
+  const commandArgs = process.platform === "win32" ? ["/c", "start", "", url] : [url];
+  const child = spawn(command, commandArgs, {
+    detached: true,
+    stdio: "ignore",
+    windowsHide: true
+  });
+  child.unref();
+}
+
+function safeSegment(value: string): string {
+  return value.replace(/[^a-z0-9._-]+/gi, "-").replace(/^-+|-+$/g, "") || "run";
+}
+
+function isInside(child: string, parent: string): boolean {
+  const result = relative(parent, child);
+  return result === "" || (!result.startsWith("..") && !isAbsolute(result));
+}
+
+function contentTypeFor(filePath: string): string {
+  switch (extname(filePath).toLowerCase()) {
+    case ".png":
+      return "image/png";
+    case ".jpg":
+    case ".jpeg":
+      return "image/jpeg";
+    case ".webp":
+      return "image/webp";
+    case ".json":
+      return "application/json; charset=utf-8";
+    case ".html":
+      return "text/html; charset=utf-8";
+    case ".txt":
+    case ".log":
+    case ".jsonl":
+      return "text/plain; charset=utf-8";
+    default:
+      return "application/octet-stream";
+  }
+}
+
+function toPortablePath(filePath: string): string {
+  return filePath.replace(/\\/g, "/");
 }
 
 function redactSecrets(value: unknown): unknown {

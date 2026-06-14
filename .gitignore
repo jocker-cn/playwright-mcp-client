@@ -5,3 +5,5 @@ node_modules/
 site-*.png
 playwright-mcp-tools.json
 *.log
+reports/
+.vscode/
