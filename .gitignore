@@ -1,0 +1,7 @@
+node_modules/
+.playwright-mcp/
+.idea/
+*-result.json
+site-*.png
+playwright-mcp-tools.json
+*.log

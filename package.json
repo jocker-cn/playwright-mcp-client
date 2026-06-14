@@ -1,0 +1,24 @@
+{
+  "name": "playwright-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.30.3",
+  "description": "Thin TypeScript client/proxy for the official @playwright/mcp server.",
+  "scripts": {
+    "mcp:help": "pnpm exec playwright-mcp --help",
+    "typecheck": "tsc --noEmit",
+    "client:server": "tsx src/mcp-proxy-server.ts",
+    "tools": "tsx src/list-tools.ts",
+    "call": "tsx src/call-tool.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.13.3",
+    "@playwright/mcp": "^0.0.76"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.3",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3"
+  }
+}
